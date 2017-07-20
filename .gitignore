@@ -1,5 +1,8 @@
-meta/*
-wsjArticle/*
-reutersArticle/*
-jsonFile/*
-log/*
+meta/
+wsjArticle/
+reutersArticle/
+jsonFile/
+log/
+__pycache__/
+.gitignore
+*.pyc
