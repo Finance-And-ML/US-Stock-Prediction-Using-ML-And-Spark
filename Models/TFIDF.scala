@@ -5,6 +5,8 @@ val sqlCtx = new SQLContext(sc)
 import sqlCtx._
 import org.apache.spark.ml.feature.{HashingTF, IDF, Tokenizer}
 
+# Simple TF-IDF Model for Sentiment Analysis
+
 val articleDF = sqlCtx.jsonFile("/user/cyy292/project/wsjArticle/*")
 
 val tokenizer = new Tokenizer().setInputCol("content").setOutputCol("words")
