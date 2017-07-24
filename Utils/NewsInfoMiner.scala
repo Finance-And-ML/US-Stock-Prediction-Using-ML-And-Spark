@@ -11,7 +11,6 @@ val newsdf = sqlContext.read.json("/home/lizichen/Desktop/Realtime-Big-Data/US-S
 val alias2ticker = sqlContext.read.json("/home/lizichen/Desktop/Realtime-Big-Data/US-Stock-Prediction-Using-ML-And-Spark/meta/alias2ticker.json")
 val tickerInfo = sqlContext.read.json("/home/lizichen/Desktop/Realtime-Big-Data/US-Stock-Prediction-Using-ML-And-Spark/meta/tickerInfo.json")
 
-// val news_ds: Dataset[NewsRow] = newsdf.as[NewsRow]
 val news_ds: Dataset[NewsRow] = newsdf.filter(line => line(1)!=null).as[NewsRow]
 
 val alias2ticker_ds: Dataset[Alias2TickerRow] = alias2ticker.as[Alias2TickerRow]
@@ -21,5 +20,3 @@ val keywords_ds = news_ds.map(s => s.keywords)
 val keywords_list = keywords_ds.map(s => s.toLowerCase.replace(","," ").split(" "))
 
 val temp_keywords_entries = keywords_list.collect().map(one_set_of_keywords => (one_set_of_keywords, alias2ticker_ds.collect().filter(line => one_set_of_keywords.contains(line.alias))))
-
-// val temp_keywords_entries_ds = keywords_list.map(one_set_of_keywords => alias2ticker_ds.collect().filter(line => one_set_of_keywords.contains(line.alias)))
