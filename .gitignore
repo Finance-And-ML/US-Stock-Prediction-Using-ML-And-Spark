@@ -2,4 +2,5 @@ jsonFile
 log
 .DS_Store
 *.pyc
-
+*.log
+metastore_db/
