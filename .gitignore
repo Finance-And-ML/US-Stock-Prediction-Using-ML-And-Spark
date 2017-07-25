@@ -4,3 +4,4 @@ log
 *.pyc
 *.log
 metastore_db/
+.ipynb_checkpoints/
