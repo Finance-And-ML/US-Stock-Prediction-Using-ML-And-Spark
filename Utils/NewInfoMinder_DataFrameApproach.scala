@@ -7,7 +7,7 @@ case class NewsRow(content:String, keywords:String, news_time:String, news_title
 case class Alias2TickerRow(alias:String, ticker:String)
 
 val sqlContext = new SQLContext(sc)
-val newsdf = sqlContext.read.json("/home/lizichen/Desktop/Realtime-Big-Data/US-Stock-Prediction-Using-ML-And-Spark/Sample-Data/20170717.json")
+val newsdf = sqlContext.read.json("/home/lizichen/Desktop/Realtime-Big-Data/US-Stock-Prediction-Using-ML-And-Spark/Sample-Data/article_till_0721/*.json")
 val alias2ticker = sqlContext.read.json("/home/lizichen/Desktop/Realtime-Big-Data/US-Stock-Prediction-Using-ML-And-Spark/meta/alias2ticker.json")
 val tickerInfo = sqlContext.read.json("/home/lizichen/Desktop/Realtime-Big-Data/US-Stock-Prediction-Using-ML-And-Spark/meta/tickerInfo.json")
 
@@ -33,10 +33,15 @@ val alias2ticker_ds: Dataset[Alias2TickerRow] = alias2ticker.as[Alias2TickerRow]
 case class News_title_tk_cleaned_ngram_CC(content:String, keywords:String, news_time:String, news_title:String, sector:String, url:String, news_title_tk:Array[String], news_title_clean:Array[String], news_title_ngrams_2:Array[String], news_title_ngrams_3:Array[String], news_title_ngrams_4:Array[String])
 val news_ds: Dataset[News_title_tk_cleaned_ngram_CC] = ngram_4_trans.as[News_title_tk_cleaned_ngram_CC]
 
-val news_title_ngrams_only = news_ds.map(s => s.news_title_clean ++ s.news_title_ngrams_2 ++ s.news_title_ngrams_3 ++ s.news_title_ngrams_4)
+val news_title_ngrams_and_keywords_only = news_ds.map(s => s.news_title_clean ++ s.news_title_ngrams_2 ++ s.news_title_ngrams_3 ++ s.news_title_ngrams_4 ++ s.keywords.split(","))
 
-val title_alias_ticker_tuple = news_title_ngrams_only.collect().map(one_set_of_keywords => (one_set_of_keywords, alias2ticker_ds.collect().filter(line => one_set_of_keywords.contains(line.alias))))
+// In the format of: (title, Alias2TickerRow(alias, ticker))
+val title_alias_ticker_tuple = news_title_ngrams_and_keywords_only.collect().map(one_set_of_keywords => (one_set_of_keywords, alias2ticker_ds.collect().filter(line => one_set_of_keywords.contains(line.alias))))
 
 // In order to view result:
 sc.parallelize(title_alias_ticker_tuple.map(s => s._1.mkString(" ") + " alias-ticker-pair:" +s._2.mkString(" ")).toSeq).saveAsTextFile("title_alias_ticker_temp_result")
 sc.parallelize(title_alias_ticker_tuple.map(s => s._2.mkString(" ")).toSeq).saveAsTextFile("alias_ticker_only_temp_result")
+
+// temp:
+val title_alias_ticker_tuple = news_title_ngrams_and_keywords_only.collect().map(one_set_of_keywords => alias2ticker_ds.collect().filter(line => one_set_of_keywords.contains(line.alias)))
+// sc.parallelize(title_alias_ticker_tuple.map(s => s._2.mkString(" ")).toSeq).saveAsTextFile("alias_ticker_only_temp_result")
