@@ -1,10 +1,11 @@
 import org.apache.spark.sql.SQLContext
 val sqlCtx = new SQLContext(sc)
 import org.apache.spark.ml.feature.{HashingTF, IDF, Tokenizer}
+import org.apache.spark.ml.linalg.SparseVector
 
 //Simple TF-IDF Model for Sentiment Analysis
 
-val articleDF = sqlCtx.read.json("/Users/jimmy/Desktop/tmp/2017-07-01.json")
+val articleDF = sqlCtx.read.json("/Users/jimmy/Desktop/tmp/US-Stock-Prediction-Using-ML-And-Spark/Sample-Data/2017-07-01.json")
 //
 val tokenizer = new Tokenizer().setInputCol("content").setOutputCol("words")
 val wordsData = tokenizer.transform(articleDF)
@@ -14,6 +15,8 @@ val idf = new IDF().setInputCol("rawFeatures").setOutputCol("features")
 val idfModel = idf.fit(featurizedData)
 val rescaledData = idfModel.transform(featurizedData)
 // rescaledData.select("features").take(3).foreach(println)
+
+//get weight fron SparseVector
 val featureVec = udf{x:SparseVector=>x.toArray}
-val rescaledData_get = rescaledData.withColumn("features_trans", featureVec(rescaledData("features")))
-rescaledData_get.select("features", "features_trans").take(3).foreach(println)
+val rescaledData_weight = rescaledData.withColumn("features_weight", featureVec(rescaledData("features")))
+rescaledData_weight.select("features", "features_weight").take(3).foreach(println)
