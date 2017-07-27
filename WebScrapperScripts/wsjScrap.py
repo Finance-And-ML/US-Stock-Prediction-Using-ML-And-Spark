@@ -24,8 +24,8 @@ def getCookie():
     for cookie in cookie_list:
         if 'name' in cookie and 'value' in cookie:
             cookie_Str += cookie['name'] + "=" + cookie['value']+ "; "
-    with open('../meta/wsjCookie.pickle','wb') as p:
-        pickle.dump(cookie_Str[:-2], p)
+    with open(parent_path +'meta/wsjCookie.txt') as j:
+        j.write(cookie_Str[:-2])
     return cookie_Str[:-2]
 
 def getArchiveURLs(archiveURL):
@@ -35,8 +35,8 @@ def getArchiveURLs(archiveURL):
         yield each['href']
 
 def getArticle(urls): #url list
-    with open('../meta/wsjCookie.pickle','rb') as p:
-        cookie = pickle.load(p)
+    with open(parent_path + 'meta/wsjCookie.txt') as j:
+        cookie = j.read()
     headers = {
         "authority":"www.wsj.com",
         "method":"GET",
@@ -102,9 +102,10 @@ def daterange(start_date, end_date):
         yield start_date + timedelta(n)
 
 if __name__ == '__main__':
+    parent_path = os.getcwd()[:-18]
     preURL = 'http://www.wsj.com/public/page/archive-'
-    start_date = date(2017, 6, 7)
-    end_date = date(2017, 6, 8)
+    start_date = date(2017, 7, 20)
+    end_date = date(2017, 7, 27)
     for single_date in daterange(start_date, end_date):
         with open('log\wsjScrap.log', 'a') as log:
             log.write('---{0}\n'.format(single_date.strftime('%Y-%m-%d')))
@@ -114,5 +115,5 @@ if __name__ == '__main__':
         wsjArticleList = []
         wsjArticleList.extend(getArticle(hrefList))
 
-        with open('wsjArticle/{0}.json'.format(single_date.strftime('%Y-%m-%d')), 'w') as p:
+        with open('{0}.json'.format(single_date.strftime('%Y-%m-%d')), 'w') as p:
             json.dump(wsjArticleList, p)

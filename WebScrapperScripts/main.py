@@ -12,7 +12,7 @@ def get_Reuters_urls(back_time):
 
     for each in reuters_API_json['articles']:
         publishTime = datetime.strptime(each['publishedAt'], '%Y-%m-%dT%H:%M:%SZ')
-        if back_time < publishTime:
+        if back_time > publishTime:
             return
         yield each['url']
 
@@ -22,7 +22,7 @@ def get_wsj_urls(back_time):
 
     for each in wsj_API_json['articles']:
         publishTime = datetime.strptime(each['publishedAt'], '%Y-%m-%dT%H:%M:%SZ')
-        if back_time < publishTime:
+        if back_time > publishTime:
             continue
         yield each['url']
 
