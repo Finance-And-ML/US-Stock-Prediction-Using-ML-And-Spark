@@ -105,11 +105,7 @@ val singleprice_df = stockprice_df.withColumn("avePrice", myudf(col("open_p"),co
 case class Stock_Single_Price_CC(ticker_symbol:String, stock_day:String, stock_time:String, volume_p:Int, avePrice:Double)
 val singleprice_ds:Dataset[Stock_Single_Price_CC] = singleprice_df.as[Stock_Single_Price_CC]
 
-
 val result = news_ds_withTickersArray.collect().map(news => singleprice_ds.collect().filter(stock => news.tickers.contains(stock.ticker_symbol) && stock.stock_day == news.news_day && stock.stock_time == news.news_time))
-
-
-
 
 // Now work on the news_ds_withTickersArray and singlePrice_ds to get the result:
 // news_day   == stock_day
