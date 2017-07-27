@@ -1,5 +1,6 @@
-// spark-shell --packages com.databricks:spark-csv_2.11:1.5.0
+//for Scala 2.11 spark-shell --packages com.databricks:spark-csv_2.11:1.5.0
 
+//for Scala 2.10 (Dumbo) $SPARK_HOME/bin/spark-shell --packages com.databricks:spark-csv_2.10:1.5.0
 import org.apache.spark.sql.SQLContext
 import org.apache.spark.sql.Dataset
 import org.apache.spark.ml.feature.{HashingTF, IDF, Tokenizer, NGram, StopWordsRemover, VectorAssembler}
@@ -14,6 +15,11 @@ val hasSector = false
 val fullDetailResult = false
 val exportResult = false
 
+// Paths for Dumbo:
+val news_data_path = "/user/lc3397/project/article_till_0721/2017-07-20-*.json"
+val alias2ticker_path = "/user/lc3397/project/alias2ticker.json"
+
+// Paths for local:
 val news_data_path = "/home/lizichen/Desktop/Realtime-Big-Data/US-Stock-Prediction-Using-ML-And-Spark/Sample-Data/article_till_0721/2017-07-20-*.json"
 val alias2ticker_path = "/home/lizichen/Desktop/Realtime-Big-Data/US-Stock-Prediction-Using-ML-And-Spark/meta/alias2ticker.json"
 // tickerInfo.json gives 'sector', 'category' and 'group' attributes for each Ticker
@@ -57,14 +63,16 @@ val news_ds: Dataset[News_title_tk_cleaned_ngram_CC] = ngram_4_trans.as[News_tit
 val news_ds_withKeywordsNgramList = news_ds.map(s => (s.content, s.news_time.split(" ")(0), s.news_time.split(" ")(1), s.news_title, s.url, s.news_title_clean ++ s.news_title_ngrams_2 ++ s.news_title_ngrams_3 ++ s.news_title_ngrams_4 ++ s.keywords.split(",")))
 // To rename column names
 val newColumnNames = Seq("content", "news_date", "news_minute", "news_title", "url", "ngramKeywords")
+
+// This line does not work for Dumbo
 val new_df_withNgramWordsArray = news_ds_withKeywordsNgramList.toDF(newColumnNames: _*)
+// This works in Dumbo:
+val new_df_withNgramWordsArray = news_ds_withKeywordsNgramList.toDF.withColumnRenamed("_1","content").withColumnRenamed("_2","news_date").withColumnRenamed("_3","news_minute").withColumnRenamed("_4","news_title").withColumnRenamed("_5","url").withColumnRenamed("_6","ngramKeywords")
+
 case class News_NGrams_CC(content:String, news_date:String, news_minute:String, news_title:String, url:String, ngramKeywords:Array[String])
 val new_ds_withNgramWordsArray:Dataset[News_NGrams_CC] = new_df_withNgramWordsArray.as[News_NGrams_CC]
 // Proceed the matching - result is in the type of Array[(String, String, String, String, Array[String])]
 val result_array_withMatchedTickers = new_ds_withNgramWordsArray.collect().map(s => (s.news_title, s.news_date, s.news_minute, s.content, s.url, alias2ticker_ds.collect().withFilter(line => s.ngramKeywords.contains(line.alias)).map(line => line.ticker)))
-
-// create rdd from the result
-// val news_rdd_withMatchedTickersArray = sc.parallelize(result_array_withMatchedTickers.toSeq)
 
 // create df/ds from the result
 val news_df_withTickersArray = result_array_withMatchedTickers.toSeq.toDF("content", "news_day", "news_time", "news_title", "url", "tickers")
@@ -74,6 +82,8 @@ val news_ds_withTickersArray:Dataset[News_withTickers_CC] = news_df_withTickersA
 
 // here stock price comes in
 val stock_price_path = "/home/lizichen/Desktop/Realtime-Big-Data/US-Stock-Intraday-Dataset/Intraday-Data/20170718_20170721_1minute/alltickers/*.csv"
+//dumbo:
+val stock_price_path = "/user/lc3397/project/alltickers"
 val stockPriceDataSchema = StructType(Array(
   StructField("ticker_symbol", StringType, true),
   StructField("stock_day", StringType, true),
@@ -84,13 +94,22 @@ val stockPriceDataSchema = StructType(Array(
   StructField("close_p",DoubleType, true),
   StructField("volume_p",IntegerType, true)
 ))
+val myudf = udf((a:String, b:String, c:String, d:String) => (a+b+c+d)/4)
 val stockprice_df = sqlContext.read.format("com.databricks.spark.csv").option("header","false").schema(stockPriceDataSchema).load(stock_price_path)
+// does not work for dumbo:
 val singleprice_df = stockprice_df.withColumn("avePrice", myudf(col("open_p"),col("high_p"),col("low_p"),col("close_p"))).drop("open_p","high_p","low_p","close_p")
+// have to seperate the drop in Dumbo:
+val singleprice_df = stockprice_df.withColumn("avePrice", myudf(col("open_p"),col("high_p"),col("low_p"),col("close_p"))).drop("open_p").drop("high_p").drop("low_p").drop("close_p")
+
+
 case class Stock_Single_Price_CC(ticker_symbol:String, stock_day:String, stock_time:String, volume_p:Int, avePrice:Double)
 val singleprice_ds:Dataset[Stock_Single_Price_CC] = singleprice_df.as[Stock_Single_Price_CC]
 
 
 val result = news_ds_withTickersArray.collect().map(news => singleprice_ds.collect().filter(stock => news.tickers.contains(stock.ticker_symbol) && stock.stock_day == news.news_day && stock.stock_time == news.news_time))
+
+
+
 
 // Now work on the news_ds_withTickersArray and singlePrice_ds to get the result:
 // news_day   == stock_day
