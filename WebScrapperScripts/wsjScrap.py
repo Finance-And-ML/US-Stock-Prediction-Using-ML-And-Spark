@@ -93,7 +93,7 @@ def getArticle(urls): #url list
                         time.sleep(5)
                         try_count +=1
                     else:
-                        with open('log\wsjScrap.log', 'a') as log:
+                        with open('log/wsjScrap.log', 'a') as log:
                             log.write('{0}, {1}'.format(url, str(e)))
                         break
 
@@ -107,7 +107,7 @@ if __name__ == '__main__':
     start_date = date(2017, 7, 20)
     end_date = date(2017, 7, 27)
     for single_date in daterange(start_date, end_date):
-        with open('log\wsjScrap.log', 'a') as log:
+        with open('log/wsjScrap.log', 'a') as log:
             log.write('---{0}\n'.format(single_date.strftime('%Y-%m-%d')))
         hrefList = []
         hrefList.extend(getArchiveURLs(preURL + single_date.strftime('%Y-%-m-%d') + '.html'))
