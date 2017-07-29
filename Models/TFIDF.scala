@@ -10,7 +10,7 @@ val articleDF = sqlCtx.read.json("/Users/jimmy/Desktop/tmp/US-Stock-Prediction-U
 //
 val tokenizer = new Tokenizer().setInputCol("content").setOutputCol("words")
 val wordsData = tokenizer.transform(articleDF)
-val hashingTF = new HashingTF().setInputCol("words").setOutputCol("rawFeatures").setNumFeatures(200000)
+val hashingTF = new HashingTF().setInputCol("words").setOutputCol("rawFeatures").setNumFeatures(400000)
 val featurizedData = hashingTF.transform(wordsData)
 val idf = new IDF().setInputCol("rawFeatures").setOutputCol("features")
 val idfModel = idf.fit(featurizedData)
