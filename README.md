@@ -7,6 +7,8 @@
 ##### meta
 - tickerinfo.json schema:
 > {"ticker": "SOME_TICKER", "sector": "Market", "category": "Electronic", "group": "Some_Group"}
+> 9 sectors, 31 categories, 212 groups
 
 - alias2ticker.json schema:
 > {"alias":"american airlines group","ticker":"AAL"}
+> use stopword.txt to delete ticker with common use
