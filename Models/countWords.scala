@@ -5,7 +5,7 @@ import org.apache.spark.ml.feature.StopWordsRemover
 import org.apache.spark.ml.feature.{HashingTF, IDF, Tokenizer}
 
 // val article = sqlCtx.jsonFile("/Users/jimmy/Desktop/article_till_0721/*")
-val article = sqlCtx.jsonFile("/user/cyy292/project/wsjArticle")
+val article = sqlCtx.jsonFile("/user/cyy292/project/jsonFile/*")
 article.cache
 
 val article_df = article.where("content is not null")

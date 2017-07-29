@@ -1,4 +1,4 @@
-//for Scala 2.11 spark-shell --packages com.databricks:spark-csv_2.11:1.5.0
+//for Scala 2.11 spark-shell --driver-memory 10G --executor-memory 15G --executor-cores 8 --packages com.databricks:spark-csv_2.11:1.5.0
 
 //for Scala 2.10 (Dumbo) $SPARK_HOME/bin/spark-shell --packages com.databricks:spark-csv_2.10:1.5.0
 import org.apache.spark.sql.SQLContext
@@ -16,18 +16,20 @@ val fullDetailResult = false
 val exportResult = false
 
 // Paths for Dumbo:
-val news_data_path = "/user/lc3397/project/article_till_0721/2017-07-20-*.json"
-val alias2ticker_path = "/user/lc3397/project/alias2ticker.json"
-val ticker_info_path = "" // tickerInfo.json gives 'sector', 'category' and 'group' attributes for each Ticker
+val news_data_path = "/user/cyy292/project/test"
+val alias2ticker_path = "/user/cyy292/project/alias2ticker.json"
+val ticker_info_path = "/user/cyy292/project/tickerInfo.json" // tickerInfo.json gives 'sector', 'category' and 'group' attributes for each Ticker
+val stock_price_path = "/user/cyy292/project/alltickers"
 
 val sqlContext = new SQLContext(sc)
 val newsdf = sqlContext.read.json(news_data_path)
 val alias2ticker = sqlContext.read.json(alias2ticker_path)
 val tickerInfo = sqlContext.read.json(ticker_info_path)
 
-val alias2ticker_ds: Dataset[Alias2TickerRow] = alias2ticker.as[Alias2TickerRow]
+// no need
+// val alias2ticker_ds: Dataset[Alias2TickerRow] = alias2ticker.as[Alias2TickerRow]
 
-val newsds = newsdf.where("keywords != null")
+val newsds = newsdf.where("keywords is not null")
 
 // Title: Tokenization => Remove Stop Words => N-Gram range[2,4]
 val tokenizer = new Tokenizer().setInputCol("news_title").setOutputCol("news_title_tk")
@@ -45,6 +47,8 @@ val ngram_3_trans = ngram_3.transform(ngram_2_trans)
 val ngram_4 = new NGram().setN(4).setInputCol("news_title_clean").setOutputCol("news_title_ngrams_4")
 val ngram_4_trans = ngram_4.transform(ngram_3_trans)
 
+ngram_4_trans.persist()
+
 // WSJ does not have 'sector' key-value pair
 case class News_title_tk_cleaned_ngram_CC(content:String, keywords:String, news_time:String, news_title:String,  url:String, news_title_tk:Array[String], news_title_clean:Array[String], news_title_ngrams_2:Array[String], news_title_ngrams_3:Array[String], news_title_ngrams_4:Array[String])
 val news_ds: Dataset[News_title_tk_cleaned_ngram_CC] = ngram_4_trans.as[News_title_tk_cleaned_ngram_CC]
@@ -58,15 +62,16 @@ val new_df_withNgramWordsArray = news_ds_withKeywordsNgramList.toDF.withColumnRe
 case class News_NGrams_CC(content:String, news_date:String, news_minute:String, news_title:String, url:String, ngramKeywords:Array[String])
 val new_ds_withNgramWordsArray:Dataset[News_NGrams_CC] = new_df_withNgramWordsArray.as[News_NGrams_CC]
 // Proceed the matching - result is in the type of Array[(String, String, String, String, Array[String])]
-val result_array_withMatchedTickers = new_ds_withNgramWordsArray.collect().map(s => (s.news_title, s.news_date, s.news_minute, s.content, s.url, alias2ticker_ds.collect().withFilter(line => s.ngramKeywords.contains(line.alias)).map(line => line.ticker)))
+val result_array_withMatchedTickers = new_ds_withNgramWordsArray.collect().map(s => (s.news_title, s.news_date, s.news_minute, s.content, s.url, alias2ticker.collect().withFilter(line => s.ngramKeywords.contains(line(0))).map(line => line(1).toString)))
+// val result_array_withMatchedTickers = new_ds_withNgramWordsArray.collect().map(s => (s.news_title, s.news_date, s.news_minute, s.content, s.url, alias2ticker_ds.collect().withFilter(line => s.ngramKeywords.contains(line.alias)).map(line => line.ticker)))
 
 // create df/ds from the result
 val news_df_withTickersArray = result_array_withMatchedTickers.toSeq.toDF("content", "news_day", "news_time", "news_title", "url", "tickers")
+//no need
 case class News_withTickers_CC(content:String, news_day:String, news_time:String, news_title:String, url:String, tickers:Array[String])
 val news_ds_withTickersArray:Dataset[News_withTickers_CC] = news_df_withTickersArray.as[News_withTickers_CC]
 
 // here stock price comes in
-val stock_price_path = "/user/lc3397/project/alltickers"
 val stockPriceDataSchema = StructType(Array(
   StructField("ticker_symbol", StringType, true),
   StructField("stock_day", StringType, true),
@@ -77,14 +82,15 @@ val stockPriceDataSchema = StructType(Array(
   StructField("close_p",DoubleType, true),
   StructField("volume_p",IntegerType, true)
 ))
-val myudf = udf((a:String, b:String, c:String, d:String) => (a+b+c+d)/4)
+val myudf = udf((a:String, b:String, c:String, d:String) => (a+b+c+d).toDouble/4)
 val stockprice_df = sqlContext.read.format("com.databricks.spark.csv").option("header","false").schema(stockPriceDataSchema).load(stock_price_path)
 val singleprice_df = stockprice_df.withColumn("avePrice", myudf(col("open_p"),col("high_p"),col("low_p"),col("close_p"))).drop("open_p").drop("high_p").drop("low_p").drop("close_p")
 
 case class Stock_Single_Price_CC(ticker_symbol:String, stock_day:String, stock_time:String, volume_p:Int, avePrice:Double)
 val singleprice_ds:Dataset[Stock_Single_Price_CC] = singleprice_df.as[Stock_Single_Price_CC]
 
-// Does not work return anyvalue:
+// Does not work return anyvalue:val result = news_ds_withTickersArray.collect().map(news => singleprice_ds.collect().filter(stock => news.tickers.contains(stock.ticker_symbol) && stock.stock_day == news.news_day && stock.stock_time == news.news_time))
+// val result = news_df_withTickersArray.collect.map(news => singleprice_df.collect().filter(stock => news(5).contains(stock(0)) && stock.stock_day == news.news_day && stock.stock_time == news.news_time))
 val result = news_ds_withTickersArray.collect().map(news => singleprice_ds.collect().filter(stock => news.tickers.contains(stock.ticker_symbol) && stock.stock_day == news.news_day && stock.stock_time == news.news_time))
 
 
