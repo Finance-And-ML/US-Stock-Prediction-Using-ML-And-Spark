@@ -6,7 +6,7 @@ import org.apache.spark.sql.DataFrame
 
 val training_DF = ??
 
-val assembler1 = new VectorAssembler().setInputCols("time_diff").setOutputCol("features")
+val assembler1 = new VectorAssembler().setInputCols(vector("time_diff")).setOutputCol("features")
 val assembler2 = new VectorAssembler().setInputCols("price_diff").setOutputCol("label")
 
 //val training = sqlCtx.read.format("libsvm").load("/Users/jimmy/Desktop/tmp/mllib/sample_linear_regression_data.txt")train
