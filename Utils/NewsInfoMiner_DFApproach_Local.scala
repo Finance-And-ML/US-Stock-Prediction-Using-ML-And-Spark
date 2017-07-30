@@ -4,6 +4,7 @@
 //for Scala 2.10 (Dumbo) $SPARK_HOME/bin/spark-shell --packages com.databricks:spark-csv_2.10:1.5.0
 
 import org.apache.spark.sql.SQLContext
+import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.Dataset
 import org.apache.spark.ml.feature.{HashingTF, IDF, Tokenizer, NGram, StopWordsRemover, VectorAssembler}
 import org.apache.spark.sql.types.{StructType, StructField, DoubleType, IntegerType, StringType}
@@ -65,7 +66,7 @@ case class News_NGrams_CC(content:String, news_time:String, news_title:String, u
 val new_ds_withNgramWordsArray:Dataset[News_NGrams_CC] = new_df_withNgramWordsArray.as[News_NGrams_CC]
 // Proceed the matching - result is in the type of Array[(String, String, String, String, Array[String])]
 val result_array_withMatchedTickers_all = new_ds_withNgramWordsArray.collect().map(s => (s.news_title, s.news_time, s.content, s.url, alias2ticker_ds.collect().withFilter(line => s.ngramKeywords.contains(line.alias)).map(line => line.ticker)))
-val result_array_withMatchedTickers = result_array_withMatchedTickers_all.filter(news => news._5.length != 0)
+val result_array_withMatchedTickers = result_array_withMatchedTickers_all.withFilter(news => news._5.length != 0).map(news => (news._1, news._2, news._3, news._4, news._5(0)))
 // create df/ds from the result
 val news_df_withTickersArray = result_array_withMatchedTickers.toSeq.toDF("content", "news_time", "news_title", "url", "tickers")
 val news_df_withTickersArray_timestampDate = news_df_withTickersArray.withColumn("news_datetime", (col("news_time").cast("timestamp"))).drop("news_time")
@@ -74,11 +75,10 @@ val add15mins = udf((currentTime:java.sql.Timestamp) => new java.sql.Timestamp(c
 val add1hr    = udf((currentTime:java.sql.Timestamp) => new java.sql.Timestamp(currentTime.getTime + 60*60*1000))
 val add2hr    = udf((currentTime:java.sql.Timestamp) => new java.sql.Timestamp(currentTime.getTime + 120*60*1000))
 
-val news_df_tickersArray_allTimestamps = news_df_withTickersArray_timestampDate.withColumn("after_15mins", add15mins(col("news_datetime"))).withColumn("after_1hr", add1hr(col("news_datetime"))).withColumn("after_2hr", add2hr(col("news_datetime")))
+val news_final_df = news_df_withTickersArray_timestampDate.withColumn("after_15mins", add15mins(col("news_datetime"))).withColumn("after_1hr", add1hr(col("news_datetime"))).withColumn("after_2hr", add2hr(col("news_datetime")))
 
-case class News_withTickers_CC(content:String, news_title:String, url:String, tickers:Array[String], news_datetime:java.sql.Timestamp, after_15mins:java.sql.Timestamp, after_1hr:java.sql.Timestamp, after_2hr:java.sql.Timestamp)
-val news_final_ds:Dataset[News_withTickers_CC] = news_df_tickersArray_allTimestamps.as[News_withTickers_CC]
-
+case class News_withTickers_CC(content:String, news_title:String, url:String, tickers:String, news_datetime:java.sql.Timestamp, after_15mins:java.sql.Timestamp, after_1hr:java.sql.Timestamp, after_2hr:java.sql.Timestamp)
+val news_final_ds:Dataset[News_withTickers_CC] = news_final_df.as[News_withTickers_CC]
 
 //##################################################################################################################################################################
 // here stock price comes in
@@ -109,8 +109,6 @@ val stock_final_df = singleprice_df.withColumn("stock_moment", addDateAndTime(co
 case class Stock_Single_Price_CC(ticker_symbol:String, volume_p:Int, avePrice:Double, stock_moment:java.sql.Timestamp)
 val stock_final_ds:Dataset[Stock_Single_Price_CC] = stock_final_df.as[Stock_Single_Price_CC]
 
-
-
 //##################################################################################################################################################################
 // Broadcast stock_final_ds
 //##################################################################################################################################################################
@@ -118,41 +116,18 @@ val broadcastVar = sc.broadcast(stock_final_ds)
 
 //##################################################################################################################################################################
 // Final Calculation with news_final_ds and stock_final_ds
+// Result:
+//       (news_day | news_time | ticker | after_15mins | after_1hr | after_2hr | current_price | price_after15mins | price_after1hr | price_after2hr |
+// Final Result:
+//       (content | header | tickers    | after_15mins | after_1hr | after_2hr | current_price | price_after15mins | price_after1hr | price_after2hr |
 //##################################################################################################################################################################
 
-// val addTime_udf = udf((a:String) => addTime(a))
-
-val result = news_final_ds.take(10).map(news => stock_final_ds.collect().filter(stock => news.tickers.contains(stock.ticker_symbol) && stock.stock_moment == news.news_datetime))
 
 
-//
-// val takeAll = false
-//
-// if (takeAll == true){
-//   val result = news_ds_withTickersArray.collect().map(news => singleprice_ds.collect().filter(stock => news.tickers.contains(stock.ticker_symbol) && stock.stock_day == news.news_day && stock.stock_time == news.news_time))
-// }else{// for testing only
-//   val result = news_ds_withTickersArray.take(10).map(
-//     news => singleprice_ds.collect().withFilter(
-//       stock => (news.tickers.contains(stock.ticker_symbol)) && (stock.stock_day == news.news_day) && (stock.stock_time == news.news_time) || (stock.stock_time == udf(news.news_time))
-//     ).map(s => s.avePrice)
-//   )
-// }
-//
-// val result = news_ds_withTickersArray.take(10).map(
-//   news => stock_final_ds.collect().withFilter(
-//     stock => (news.tickers.contains(stock.ticker_symbol)) && (stock.stock_day == news.news_day) && (stock.stock_time == news.news_time) || (stock.stock_time == "09:30:00") || (stock.stock_time == "10:30:00"))
-//   )
-// )
 
-// Now work on the news_ds_withTickersArray and singlePrice_ds to get the result:
-// news_day   == stock_day
-// news_time  == stock_time
-// tickers -> ticker_1 = ticker_symbol_1
-//         -> ticker_2 = ticker_symbol_2
-// Result:
-//       (news_day | news_time | ticker | moment_price | 15min_price | 1hr_price | 2hr_price)
-// Final Result:
-//       (content | header | tickers    | k1           | k2          | k3        | k4
+
+
+
 
 
 
