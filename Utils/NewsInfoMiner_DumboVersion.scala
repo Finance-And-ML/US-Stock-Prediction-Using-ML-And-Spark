@@ -64,20 +64,23 @@ val new_df_withNgramWordsArray = news_ds_withKeywordsNgramList.toDF.withColumnRe
 case class News_NGrams_CC(content:String, news_time:String, news_title:String, url:String, ngramKeywords:Array[String])
 val new_ds_withNgramWordsArray:Dataset[News_NGrams_CC] = new_df_withNgramWordsArray.as[News_NGrams_CC]
 // Proceed the matching - result is in the type of Array[(String, String, String, String, Array[String])]
-val result_array_withMatchedTickers_all = new_ds_withNgramWordsArray.collect().map(s => (s.news_title, s.news_time, s.content, s.url, alias2ticker_ds.collect().withFilter(line => s.ngramKeywords.contains(line.alias)).map(line => line.ticker)))
-val result_array_withMatchedTickers = result_array_withMatchedTickers_all.filter(news => news._5.length != 0)
+val result_array_withMatchedTickers_all = new_ds_withNgramWordsArray.collect().map(s => (s.news_title, s.news_time, s.url, alias2ticker_ds.collect().withFilter(line => s.ngramKeywords.contains(line.alias)).map(line => line.ticker)))
+
+val result_array_withMatchedTickers = result_array_withMatchedTickers_all.filter(news => news._4.length == 1).map(news => (news._1, news._2, news._3, news._4(0)))
+
 // create df/ds from the result
-val news_df_withTickersArray = result_array_withMatchedTickers.toSeq.toDF("content", "news_time", "news_title", "url", "tickers")
+val news_df_withTickersArray = result_array_withMatchedTickers.toSeq.toDF("news_title", "news_time", "url", "tickers")
+//news_df_withTickersArray.cache
 val news_df_withTickersArray_timestampDate = news_df_withTickersArray.withColumn("news_datetime", (col("news_time").cast("timestamp"))).drop("news_time")
 
 val add15mins = udf((currentTime:java.sql.Timestamp) => new java.sql.Timestamp(currentTime.getTime + 15*60*1000))
 val add1hr    = udf((currentTime:java.sql.Timestamp) => new java.sql.Timestamp(currentTime.getTime + 60*60*1000))
 val add2hr    = udf((currentTime:java.sql.Timestamp) => new java.sql.Timestamp(currentTime.getTime + 120*60*1000))
 
-val news_df_tickersArray_allTimestamps = news_df_withTickersArray_timestampDate.withColumn("after_15mins", add15mins(col("news_datetime"))).withColumn("after_1hr", add1hr(col("news_datetime"))).withColumn("after_2hr", add2hr(col("news_datetime")))
+val news_final_df = news_df_withTickersArray_timestampDate.withColumn("after_15mins", add15mins(col("news_datetime"))).withColumn("after_1hr", add1hr(col("news_datetime"))).withColumn("after_2hr", add2hr(col("news_datetime")))
 
-case class News_withTickers_CC(content:String, news_title:String, url:String, tickers:Array[String], news_datetime:java.sql.Timestamp, after_15mins:java.sql.Timestamp, after_1hr:java.sql.Timestamp, after_2hr:java.sql.Timestamp)
-val news_final_ds:Dataset[News_withTickers_CC] = news_df_tickersArray_allTimestamps.as[News_withTickers_CC]
+case class News_withTickers_CC(news_title:String, url:String, tickers:String, news_datetime:java.sql.Timestamp, after_15mins:java.sql.Timestamp, after_1hr:java.sql.Timestamp, after_2hr:java.sql.Timestamp)
+val news_final_ds:Dataset[News_withTickers_CC] = news_final_df.as[News_withTickers_CC]
 
 
 //##################################################################################################################################################################
@@ -122,7 +125,11 @@ val broadcastVar = sc.broadcast(stock_final_ds)
 
 // val addTime_udf = udf((a:String) => addTime(a))
 
-val result = news_final_ds.take(10).map(news => stock_final_ds.collect().filter(stock => news.tickers.contains(stock.ticker_symbol) && stock.stock_moment == news.news_datetime))
+val result = news_final_ds.take(10).map(news => broadcastVar.value.collect().filter(stock => news.tickers.contains(stock.ticker_symbol) && stock.stock_moment == news.news_datetime))
+
+val join_table = news_final_df.join(stock_final_df, news_final_df("tickers") === stock_final_df("ticker_symbol"))
+
+val result = join_table.where("news_datetime = stock_moment")
 
 
 //
