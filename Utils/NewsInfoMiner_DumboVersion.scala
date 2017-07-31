@@ -18,6 +18,7 @@ val ticker_info_path = "/user/cyy292/project/tickerInfo.json" // tickerInfo.json
 val stock_price_path = "/user/cyy292/project/alltickers"
 
 val sqlContext = new SQLContext(sc)
+import sqlContext._
 val newsdf = sqlContext.read.json(news_data_path)
 val alias2ticker = sqlContext.read.json(alias2ticker_path)
 val tickerInfo = sqlContext.read.json(ticker_info_path)
@@ -125,13 +126,17 @@ val broadcastVar = sc.broadcast(stock_final_ds)
 
 // val addTime_udf = udf((a:String) => addTime(a))
 
-val result = news_final_ds.take(10).map(news => broadcastVar.value.collect().filter(stock => news.tickers.contains(stock.ticker_symbol) && stock.stock_moment == news.news_datetime))
+// val result = news_final_ds.take(10).map(news => broadcastVar.value.collect().filter(stock => news.tickers.contains(stock.ticker_symbol) && stock.stock_moment == news.news_datetime))
 
 val join_table = news_final_df.join(stock_final_df, news_final_df("tickers") === stock_final_df("ticker_symbol"))
 
 val result = join_table.where("news_datetime = stock_moment")
 
+news_final_df.registerTempTable("T1")
+stock_final_df.registerTempTable("T2")
+val test = sqlContext.sql("""SELECT T1.tickers WHERE T1.tickers = T2.ticker_symbol""")
 
+val joinedDF = news_final_df.as('a).join(stock_final_df.as('b), $"a.tickers" === $"b.ticker_symbol" AND $"a.news_datetime" === $"b.stock_moment")
 //
 // val takeAll = false
 //

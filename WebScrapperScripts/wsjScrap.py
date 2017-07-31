@@ -24,7 +24,7 @@ def getCookie():
     for cookie in cookie_list:
         if 'name' in cookie and 'value' in cookie:
             cookie_Str += cookie['name'] + "=" + cookie['value']+ "; "
-    with open(parent_path +'meta/wsjCookie.txt') as j:
+    with open(parent_path +'meta/wsjCookie.txt', 'w') as j:
         j.write(cookie_Str[:-2])
     return cookie_Str[:-2]
 
@@ -40,18 +40,21 @@ def getArticle(urls): #url list
     headers = {
         "authority":"www.wsj.com",
         "method":"GET",
-        "path":"/articles/investors-beware-bond-prices-are-threatening-the-stock-market-1499714256?mod=nwsrl_streetwise",
+        "path":"/articles/sean-spicer-resigns-as-white-house-press-secretary-1500653457",
         "scheme":"https",
         "accept":"text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
         "accept-encoding":"gzip, deflate, br",
         "accept-language":"zh-TW,zh;q=0.8,en-US;q=0.6,en;q=0.4,ja;q=0.2",
         "cache-control":"max-age=0",
         "cookie":cookie ,
+        "upgrade-insecure-requests":"1",
         "user-agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.115 Safari/537.36"
     }
     c = requests.get('https://www.wsj.com/articles/sean-spicer-resigns-as-white-house-press-secretary-1500653457', headers = headers)
     soup = BeautifulSoup(c.content, 'lxml')
-    if len(soup.select('.wsj-snippet-login')) != 0:
+    # print(soup)
+    if 'SSO Session Absolute Timeout' in c.content.decode('utf-8'):
+        # print('here2')
         headers['cookie'] = getCookie()
 
     with requests.session() as rs:
@@ -89,13 +92,14 @@ def getArticle(urls): #url list
                     break
 
                 except Exception as e:
-                    if try_count < 3:
-                        time.sleep(5)
-                        try_count +=1
-                    else:
-                        with open('log/wsjScrap.log', 'a') as log:
-                            log.write('{0}, {1}'.format(url, str(e)))
-                        break
+                    pass
+                    # if try_count < 3:
+                    #     time.sleep(5)
+                    #     try_count +=1
+                    # else:
+                    #     with open('log/wsjScrap.log', 'a') as log:
+                    #         log.write('{0}, {1}'.format(url, str(e)))
+                    #     break
 
 def daterange(start_date, end_date):
     for n in range(int ((end_date - start_date).days)):
@@ -104,11 +108,11 @@ def daterange(start_date, end_date):
 if __name__ == '__main__':
     parent_path = os.getcwd()[:-18]
     preURL = 'http://www.wsj.com/public/page/archive-'
-    start_date = date(2017, 7, 20)
-    end_date = date(2017, 7, 27)
+    start_date = date(2017, 7, 28)
+    end_date = date(2017, 7, 29)
     for single_date in daterange(start_date, end_date):
-        with open('log/wsjScrap.log', 'a') as log:
-            log.write('---{0}\n'.format(single_date.strftime('%Y-%m-%d')))
+        # with open('log/wsjScrap.log', 'a') as log:
+        #     log.write('---{0}\n'.format(single_date.strftime('%Y-%m-%d')))
         hrefList = []
         hrefList.extend(getArchiveURLs(preURL + single_date.strftime('%Y-%-m-%d') + '.html'))
 
