@@ -9,10 +9,6 @@ case class TickerInfoRow(category:String, group:String, sector:String, ticker:St
 case class NewsRow(content:String, keywords:String, news_time:String, news_title:String, sector:String, url:String)
 case class Alias2TickerRow(alias:String, ticker:String)
 
-val hasSector = false
-val fullDetailResult = false
-val exportResult = false
-
 // Paths for Dumbo:
 val news_data_path = "/user/lc3397/project/article_till_0721/2017-07-20-*.json"
 val alias2ticker_path = "/user/lc3397/project/alias2ticker.json"

@@ -1,4 +1,4 @@
-//Local: spark-shell --driver-memory 3G --executor-memory 5G --executor-cores 3
+//Local: spark-shell --driver-memory 2G --executor-memory 3G --executor-cores 2
 //Dumbo: spark-shell --driver-memory 10G --executor-memory 15G --executor-cores 8
 //for Scala 2.11 spark-shell --packages com.databricks:spark-csv_2.11:1.5.0
 //for Scala 2.10 (Dumbo) $SPARK_HOME/bin/spark-shell --packages com.databricks:spark-csv_2.10:1.5.0
@@ -25,7 +25,7 @@ val tickerInfo = sqlContext.read.json(ticker_info_path)
 
 val alias2ticker_ds: Dataset[Alias2TickerRow] = alias2ticker.as[Alias2TickerRow]
 
-val newsds = newsdf.where("keywords != null")
+val newsds = newsdf.where("keywords is not null")
 
 // Title: Tokenization => Remove Stop Words => N-Gram range[2,4]
 val tokenizer = new Tokenizer().setInputCol("news_title").setOutputCol("news_title_tk")
@@ -56,11 +56,8 @@ val news_ds: Dataset[News_title_tk_cleaned_ngram_CC] = ngram_4_trans.as[News_tit
 val news_ds_withKeywordsNgramList = news_ds.map(s => (s.content, s.news_time, s.news_title, s.url, s.news_title_clean ++ s.news_title_ngrams_2 ++ s.news_title_ngrams_3 ++ s.news_title_ngrams_4 ++ s.keywords.split(",")))
 // To rename column names
 val newColumnNames = Seq("content", "news_time", "news_title", "url", "ngramKeywords")
-
-// This line does not work for Dumbo
 val new_df_withNgramWordsArray = news_ds_withKeywordsNgramList.toDF(newColumnNames: _*)
-// This works in Dumbo:
-// val new_df_withNgramWordsArray = news_ds_withKeywordsNgramList.toDF.withColumnRenamed("_1","content").withColumnRenamed("_2","news_date").withColumnRenamed("_3","news_minute").withColumnRenamed("_4","news_title").withColumnRenamed("_5","url").withColumnRenamed("_6","ngramKeywords")
+
 
 case class News_NGrams_CC(content:String, news_time:String, news_title:String, url:String, ngramKeywords:Array[String])
 val new_ds_withNgramWordsArray:Dataset[News_NGrams_CC] = new_df_withNgramWordsArray.as[News_NGrams_CC]
@@ -99,10 +96,7 @@ val stockPriceDataSchema = StructType(Array(
 ))
 val avePrice_calculator = udf((a:Double, b:Double, c:Double, d:Double) => (a+b+c+d)/4)
 val stockprice_df = sqlContext.read.format("com.databricks.spark.csv").option("header","false").schema(stockPriceDataSchema).load(stock_price_path)
-// does not work for dumbo:
 val singleprice_df = stockprice_df.withColumn("avePrice", avePrice_calculator(col("open_p"),col("high_p"),col("low_p"),col("close_p"))).drop("open_p","high_p","low_p","close_p")
-// have to seperate the drop in Dumbo:
-// val singleprice_df = stockprice_df.withColumn("avePrice", myudf(col("open_p"),col("high_p"),col("low_p"),col("close_p"))).drop("open_p").drop("high_p").drop("low_p").drop("close_p")
 
 val addDateAndTime = udf((date:String, time:String) => date+" "+time)
 val stock_final_df = singleprice_df.withColumn("stock_moment", addDateAndTime(col("stock_day"), col("stock_time")).cast("timestamp")).drop("stock_day", "stock_time")
