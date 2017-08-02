@@ -2,11 +2,13 @@
 //Dumbo: spark-shell --driver-memory 10G --executor-memory 15G --executor-cores 8
 //for Scala 2.11 spark-shell --packages com.databricks:spark-csv_2.11:1.5.0
 //for Scala 2.10 (Dumbo) $SPARK_HOME/bin/spark-shell --packages com.databricks:spark-csv_2.10:1.5.0
+//--conf spark.kryoserializer.buffer.max=512
 
-import org.apache.spark.sql.SQLContext
-import org.apache.spark.sql.Dataset
-import org.apache.spark.ml.feature.{HashingTF, IDF, Tokenizer, NGram, StopWordsRemover, VectorAssembler}
+import org.apache.spark.sql.{SQLContext, Dataset, DataFrame}
+import org.apache.spark.ml.feature.{HashingTF, IDF, Tokenizer, NGram, StopWordsRemover, VectorAssembler, StandardScaler, PCA}
+import org.apache.spark.ml.regression.LinearRegression
 import org.apache.spark.sql.types.{StructType, StructField, DoubleType, IntegerType, StringType}
+import org.apache.spark.ml.feature.VectorAssembler
 
 case class TickerInfoRow(category:String, group:String, sector:String, ticker:String)
 case class NewsRow(content:String, keywords:String, news_time:String, news_title:String, sector:String, url:String)
@@ -18,12 +20,13 @@ val ticker_info_path = "/user/cyy292/project/tickerInfo.json" // tickerInfo.json
 val stock_price_path = "/user/cyy292/project/alltickers"
 
 val sqlContext = new SQLContext(sc)
-import sqlContext._
 val newsdf = sqlContext.read.json(news_data_path)
 val alias2ticker = sqlContext.read.json(alias2ticker_path)
 val tickerInfo = sqlContext.read.json(ticker_info_path)
 
 val alias2ticker_ds: Dataset[Alias2TickerRow] = alias2ticker.as[Alias2TickerRow]
+//broadcast
+val alias2ticker_ds_bc = sc.broadcast(alias2ticker_ds)
 
 val newsds = newsdf.where("keywords is not null")
 
@@ -62,26 +65,27 @@ val new_df_withNgramWordsArray = news_ds_withKeywordsNgramList.toDF.withColumnRe
 // This works in Dumbo:
 // val new_df_withNgramWordsArray = news_ds_withKeywordsNgramList.toDF.withColumnRenamed("_1","content").withColumnRenamed("_2","news_date").withColumnRenamed("_3","news_minute").withColumnRenamed("_4","news_title").withColumnRenamed("_5","url").withColumnRenamed("_6","ngramKeywords")
 
-case class News_NGrams_CC(content:String, news_time:String, news_title:String, url:String, ngramKeywords:Array[String])
+case class News_NGrams_CC(news_time:String, news_title:String, url:String, content:String, ngramKeywords:Array[String])
 val new_ds_withNgramWordsArray:Dataset[News_NGrams_CC] = new_df_withNgramWordsArray.as[News_NGrams_CC]
 // Proceed the matching - result is in the type of Array[(String, String, String, String, Array[String])]
-val result_array_withMatchedTickers_all = new_ds_withNgramWordsArray.collect().map(s => (s.news_title, s.news_time, s.url, alias2ticker_ds.collect().withFilter(line => s.ngramKeywords.contains(line.alias)).map(line => line.ticker)))
+val result_array_withMatchedTickers_all = new_ds_withNgramWordsArray.collect().map(s => (s.news_title, s.news_time, s.url, s.content, alias2ticker_ds_bc.value.collect().withFilter(line => s.ngramKeywords.contains(line.alias)).map(line => line.ticker)))
 
-val result_array_withMatchedTickers = result_array_withMatchedTickers_all.filter(news => news._4.length == 1).map(news => (news._1, news._2, news._3, news._4(0)))
+val result_array_withMatchedTickers = result_array_withMatchedTickers_all.filter(news => news._5.length == 1).map(news => (news._1, news._2, news._3, news._4, news._5(0)))
 
 // create df/ds from the result
-val news_df_withTickersArray = result_array_withMatchedTickers.toSeq.toDF("news_title", "news_time", "url", "tickers")
+val news_df_withTickersArray = result_array_withMatchedTickers.toSeq.toDF("news_title", "news_time", "url", "content", "tickers")
 //news_df_withTickersArray.cache
 val news_df_withTickersArray_timestampDate = news_df_withTickersArray.withColumn("news_datetime", (col("news_time").cast("timestamp"))).drop("news_time")
 
-val add15mins = udf((currentTime:java.sql.Timestamp) => new java.sql.Timestamp(currentTime.getTime + 15*60*1000))
-val add1hr    = udf((currentTime:java.sql.Timestamp) => new java.sql.Timestamp(currentTime.getTime + 60*60*1000))
-val add2hr    = udf((currentTime:java.sql.Timestamp) => new java.sql.Timestamp(currentTime.getTime + 120*60*1000))
+val add7 = udf((currentTime:java.sql.Timestamp) => new java.sql.Timestamp(currentTime.getTime + 7*60*1000))
+val add15 = udf((currentTime:java.sql.Timestamp) => new java.sql.Timestamp(currentTime.getTime + 15*60*1000))
+val add30 = udf((currentTime:java.sql.Timestamp) => new java.sql.Timestamp(currentTime.getTime + 30*60*1000))
+val add60 = udf((currentTime:java.sql.Timestamp) => new java.sql.Timestamp(currentTime.getTime + 60*60*1000))
 
-val news_final_df = news_df_withTickersArray_timestampDate.withColumn("after_15mins", add15mins(col("news_datetime"))).withColumn("after_1hr", add1hr(col("news_datetime"))).withColumn("after_2hr", add2hr(col("news_datetime")))
+val news_final_df = news_df_withTickersArray_timestampDate.withColumn("after_7m", add7(col("news_datetime"))).withColumn("after_15m", add15(col("news_datetime"))).withColumn("after_30m", add30(col("news_datetime"))).withColumn("after_60m", add60(col("news_datetime")))
 
-case class News_withTickers_CC(news_title:String, url:String, tickers:String, news_datetime:java.sql.Timestamp, after_15mins:java.sql.Timestamp, after_1hr:java.sql.Timestamp, after_2hr:java.sql.Timestamp)
-val news_final_ds:Dataset[News_withTickers_CC] = news_final_df.as[News_withTickers_CC]
+// case class News_withTickers_CC(news_title:String, url:String, tickers:String, news_datetime:java.sql.Timestamp, after_15mins:java.sql.Timestamp, after_1hr:java.sql.Timestamp, after_2hr:java.sql.Timestamp)
+// val news_final_ds:Dataset[News_withTickers_CC] = news_final_df.as[News_withTickers_CC]
 
 
 //##################################################################################################################################################################
@@ -118,7 +122,7 @@ val stock_final_ds:Dataset[Stock_Single_Price_CC] = stock_final_df.as[Stock_Sing
 //##################################################################################################################################################################
 // Broadcast stock_final_ds
 //##################################################################################################################################################################
-val broadcastVar = sc.broadcast(stock_final_ds)
+//val broadcastVar = sc.broadcast(stock_final_ds)
 
 //##################################################################################################################################################################
 // Final Calculation with news_final_ds and stock_final_ds
@@ -129,14 +133,46 @@ val broadcastVar = sc.broadcast(stock_final_ds)
 // val result = news_final_ds.take(10).map(news => broadcastVar.value.collect().filter(stock => news.tickers.contains(stock.ticker_symbol) && stock.stock_moment == news.news_datetime))
 
 val join_table = news_final_df.join(stock_final_df, news_final_df("tickers") === stock_final_df("ticker_symbol"))
+join_table.cache
+val price_current_df = join_table.where("news_datetime = stock_moment").withColumnRenamed("volume_p", "volume_cur").withColumnRenamed("avePrice", "price_cur").withColumn("id_cur",monotonicallyIncreasingId)
+val price_7m_df = join_table.where("after_7m = stock_moment").withColumnRenamed("volume_p", "volume_7m").withColumnRenamed("avePrice", "price_7m").withColumn("id_7m",monotonicallyIncreasingId).select($"id_7m", $"volume_7m", $"price_7m")
+val price_15m_df = join_table.where("after_15m = stock_moment").withColumnRenamed("volume_p", "volume_15m").withColumnRenamed("avePrice", "price_15m").withColumn("id_15m",monotonicallyIncreasingId).select($"id_15m", $"volume_15m", $"price_15m")
+val price_30m_df = join_table.where("after_30m = stock_moment").withColumnRenamed("volume_p", "volume_30m").withColumnRenamed("avePrice", "price_30m").withColumn("id_30m",monotonicallyIncreasingId).select($"id_30m", $"volume_30m", $"price_30m")
+val price_60m_df = join_table.where("after_60m = stock_moment").withColumnRenamed("volume_p", "volume_60m").withColumnRenamed("avePrice", "price_60m").withColumn("id_60m",monotonicallyIncreasingId).select($"id_60m", $"volume_60m", $"price_60m")
 
-val result = join_table.where("news_datetime = stock_moment")
+val price_cur_7m_df = price_current_df.join(price_7m_df, price_current_df("id_cur") === price_7m_df("id_7m"))
+val target_7m = price_cur_7m_df.select(($"*"), (($"price_7m") - ($"price_cur"))/($"price_cur") as "price_7m_diff")
+val price_cur_15m_df = target_7m.join(price_15m_df, target_7m("id_cur") === price_15m_df("id_15m"))
+val target_15m = price_cur_15m_df.select(($"*"), (($"price_15m") - ($"price_cur"))/($"price_cur") as "price_15m_diff")
+val price_cur_30m_df = target_15m.join(price_30m_df, target_15m("id_cur") === price_30m_df("id_30m"))
+val target_30m = price_cur_30m_df.select(($"*"), (($"price_30m") - ($"price_cur"))/($"price_cur") as "price_30m_diff")
+val price_cur_60m_df = target_30m.join(price_60m_df, target_30m("id_cur") === price_60m_df("id_60m"))
+val target_60m = price_cur_60m_df.select(($"*"), (($"price_60m") - ($"price_cur"))/($"price_cur") as "price_60m_diff")
 
-news_final_df.registerTempTable("T1")
-stock_final_df.registerTempTable("T2")
-val test = sqlContext.sql("""SELECT T1.tickers WHERE T1.tickers = T2.ticker_symbol""")
+//##################################################################################################################################################################
+// Normalization
+// target_7m.agg(min(target_7m.columns(18)), max(target_7m.columns(18)))
+//##################################################################################################################################################################
 
-val joinedDF = news_final_df.as('a).join(stock_final_df.as('b), $"a.tickers" === $"b.ticker_symbol" AND $"a.news_datetime" === $"b.stock_moment")
+case class target_CC(content: String, tickers: String, price_7m_diff: Double, price_15m_diff: Double, price_30m_diff: Double, price_60m_diff: Double)
+val target_ds:Dataset[target_CC] = target_60m.select("content", "tickers","price_7m_diff", "price_15m_diff", "price_30m_diff", "price_60m_diff").as[target_CC]
+
+def get_label(price_diff: Double): Double = {
+  if (price_diff >= 0.5) {return 5.0}
+  else if (price_diff >= 0.15 && price_diff < 0.5) {return 4.0}
+  else if (price_diff >= -0.15 && price_diff < 0.15) {return 3.0}
+  else if (price_diff >= -0.5 && price_diff < -0.15) {return 2.0}
+  else {return 1.0}
+}
+
+val target_labeled = target_ds.map(row => (row.content, row.tickers, get_label(row.price_7m_diff), get_label(row.price_15m_diff), get_label(row.price_30m_diff), get_label(row.price_60m_diff))).toDF().withColumnRenamed("_1", "content").withColumnRenamed("_2", "tickers").withColumnRenamed("_3", "label_7m").withColumnRenamed("_4", "label_15m").withColumnRenamed("_5", "label_30m").withColumnRenamed("_6", "label_60m")
+
+target_labeled.write.json("/user/cyy292/project/target_labeled.json")
+
+
+
+
+
 //
 // val takeAll = false
 //
