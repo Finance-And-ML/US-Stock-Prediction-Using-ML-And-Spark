@@ -9,6 +9,7 @@ import org.apache.spark.ml.feature.{HashingTF, IDF, Tokenizer, NGram, StopWordsR
 import org.apache.spark.ml.regression.LinearRegression
 import org.apache.spark.sql.types.{StructType, StructField, DoubleType, IntegerType, StringType}
 import org.apache.spark.ml.feature.VectorAssembler
+import org.apache.spark.mllib.linalg.{Vector, Vectors}
 
 case class TickerInfoRow(category:String, group:String, sector:String, ticker:String)
 case class NewsRow(content:String, keywords:String, news_time:String, news_title:String, sector:String, url:String)
@@ -25,8 +26,10 @@ val alias2ticker = sqlContext.read.json(alias2ticker_path)
 val tickerInfo = sqlContext.read.json(ticker_info_path)
 
 val alias2ticker_ds: Dataset[Alias2TickerRow] = alias2ticker.as[Alias2TickerRow]
+val tickerInfo_ds: Dataset[TickerInfoRow] = tickerInfo.as[TickerInfoRow]
 //broadcast
 val alias2ticker_ds_bc = sc.broadcast(alias2ticker_ds)
+val tickerInfo_ds_bc = sc.broadcast(tickerInfo_ds)
 
 val newsds = newsdf.where("keywords is not null")
 
@@ -46,16 +49,8 @@ val ngram_3_trans = ngram_3.transform(ngram_2_trans)
 val ngram_4 = new NGram().setN(4).setInputCol("news_title_clean").setOutputCol("news_title_ngrams_4")
 val ngram_4_trans = ngram_4.transform(ngram_3_trans)
 
-// Only apply to Reuter News Dataset
-/*
-case class News_title_tk_cleaned_ngram_CC(content:String, keywords:String, news_time:String, news_title:String, sector:String, url:String, news_title_tk:Array[String], news_title_clean:Array[String], news_title_ngrams_2:Array[String], news_title_ngrams_3:Array[String], news_title_ngrams_4:Array[String])
-val news_ds: Dataset[News_title_tk_cleaned_ngram_CC] = ngram_4_trans.as[News_title_tk_cleaned_ngram_CC]
-val news_title_ngrams_and_keywords_only = news_ds.map(s => s.news_title_clean ++ s.news_title_ngrams_2 ++ s.news_title_ngrams_3 ++ s.news_title_ngrams_4 ++ s.keywords.split(","))
-*/
-// WSJ does not have 'sector' key-value pair
 case class News_title_tk_cleaned_ngram_CC(content:String, keywords:String, news_time:String, news_title:String,  url:String, news_title_tk:Array[String], news_title_clean:Array[String], news_title_ngrams_2:Array[String], news_title_ngrams_3:Array[String], news_title_ngrams_4:Array[String])
 val news_ds: Dataset[News_title_tk_cleaned_ngram_CC] = ngram_4_trans.as[News_title_tk_cleaned_ngram_CC]
-// val news_title_ngrams_and_keywords_only = news_ds.map(s => s.news_title_clean ++ s.news_title_ngrams_2 ++ s.news_title_ngrams_3 ++ s.news_title_ngrams_4 ++ s.keywords.split(","))
 val news_ds_withKeywordsNgramList = news_ds.map(s => (s.content, s.news_time, s.news_title, s.url, s.news_title_clean ++ s.news_title_ngrams_2 ++ s.news_title_ngrams_3 ++ s.news_title_ngrams_4 ++ s.keywords.split(",")))
 // To rename column names
 val newColumnNames = Seq("content", "news_time", "news_title", "url", "ngramKeywords")
@@ -83,9 +78,6 @@ val add30 = udf((currentTime:java.sql.Timestamp) => new java.sql.Timestamp(curre
 val add60 = udf((currentTime:java.sql.Timestamp) => new java.sql.Timestamp(currentTime.getTime + 60*60*1000))
 
 val news_final_df = news_df_withTickersArray_timestampDate.withColumn("after_7m", add7(col("news_datetime"))).withColumn("after_15m", add15(col("news_datetime"))).withColumn("after_30m", add30(col("news_datetime"))).withColumn("after_60m", add60(col("news_datetime")))
-
-// case class News_withTickers_CC(news_title:String, url:String, tickers:String, news_datetime:java.sql.Timestamp, after_15mins:java.sql.Timestamp, after_1hr:java.sql.Timestamp, after_2hr:java.sql.Timestamp)
-// val news_final_ds:Dataset[News_withTickers_CC] = news_final_df.as[News_withTickers_CC]
 
 
 //##################################################################################################################################################################
@@ -117,20 +109,9 @@ val stock_final_df = singleprice_df.withColumn("stock_moment", addDateAndTime(co
 case class Stock_Single_Price_CC(ticker_symbol:String, volume_p:Int, avePrice:Double, stock_moment:java.sql.Timestamp)
 val stock_final_ds:Dataset[Stock_Single_Price_CC] = stock_final_df.as[Stock_Single_Price_CC]
 
-
-
-//##################################################################################################################################################################
-// Broadcast stock_final_ds
-//##################################################################################################################################################################
-//val broadcastVar = sc.broadcast(stock_final_ds)
-
 //##################################################################################################################################################################
 // Final Calculation with news_final_ds and stock_final_ds
 //##################################################################################################################################################################
-
-// val addTime_udf = udf((a:String) => addTime(a))
-
-// val result = news_final_ds.take(10).map(news => broadcastVar.value.collect().filter(stock => news.tickers.contains(stock.ticker_symbol) && stock.stock_moment == news.news_datetime))
 
 val join_table = news_final_df.join(stock_final_df, news_final_df("tickers") === stock_final_df("ticker_symbol"))
 join_table.cache
@@ -150,72 +131,85 @@ val price_cur_60m_df = target_30m.join(price_60m_df, target_30m("id_cur") === pr
 val target_60m = price_cur_60m_df.select(($"*"), (($"price_60m") - ($"price_cur"))/($"price_cur") as "price_60m_diff")
 
 //##################################################################################################################################################################
-// Normalization
-// target_7m.agg(min(target_7m.columns(18)), max(target_7m.columns(18)))
+// match tickerInfo
 //##################################################################################################################################################################
 
-case class target_CC(content: String, tickers: String, price_7m_diff: Double, price_15m_diff: Double, price_30m_diff: Double, price_60m_diff: Double)
-val target_ds:Dataset[target_CC] = target_60m.select("content", "tickers","price_7m_diff", "price_15m_diff", "price_30m_diff", "price_60m_diff").as[target_CC]
+val target_tickerInfo_df = target_60m.join(tickerInfo, target_60m("tickers") === tickerInfo("ticker"))
+case class target_tickerInfo_CC(content: String, tickers: String, sector: String, category: String, price_7m_diff: Double, price_15m_diff: Double, price_30m_diff: Double, price_60m_diff: Double, news_datetime: java.sql.Timestamp)
+val target_tickerInfo_ds:Dataset[target_tickerInfo_CC] = target_tickerInfo_df.select("content", "tickers", "sector", "category", "price_7m_diff", "price_15m_diff", "price_30m_diff", "price_60m_diff", "news_datetime").as[target_tickerInfo_CC]
+
+
+//##################################################################################################################################################################
+// label define
+//##################################################################################################################################################################
 
 def get_label(price_diff: Double): Double = {
-  if (price_diff >= 0.5) {return 5.0}
-  else if (price_diff >= 0.15 && price_diff < 0.5) {return 4.0}
-  else if (price_diff >= -0.15 && price_diff < 0.15) {return 3.0}
-  else if (price_diff >= -0.5 && price_diff < -0.15) {return 2.0}
+  if (price_diff >= 0.01) {return 3.0}
+  else if (price_diff >= -0.01 && price_diff < 0.01) {return 2.0}
   else {return 1.0}
 }
 
-val target_labeled = target_ds.map(row => (row.content, row.tickers, get_label(row.price_7m_diff), get_label(row.price_15m_diff), get_label(row.price_30m_diff), get_label(row.price_60m_diff))).toDF().withColumnRenamed("_1", "content").withColumnRenamed("_2", "tickers").withColumnRenamed("_3", "label_7m").withColumnRenamed("_4", "label_15m").withColumnRenamed("_5", "label_30m").withColumnRenamed("_6", "label_60m")
+def get_sector(sector: String): Vector = sector match {
+  case "Basic Materials" => Vectors.sparse(10, Array(0), Array(1.0))
+  case "Conglomerates" => Vectors.sparse(10, Array(1), Array(1.0))
+  case "Consumer Goods" => Vectors.sparse(10, Array(2), Array(1.0))
+  case "Financial" => Vectors.sparse(10, Array(3), Array(1.0))
+  case "Healthcare" => Vectors.sparse(10, Array(4), Array(1.0))
+  case "Industrial Goods" => Vectors.sparse(10, Array(5), Array(1.0))
+  case "Services" => Vectors.sparse(10, Array(6), Array(1.0))
+  case "Technology" => Vectors.sparse(10, Array(7), Array(1.0))
+  case "Utilities" => Vectors.sparse(10, Array(8), Array(1.0))
+  case _ => Vectors.sparse(10, Array(9), Array(1.0))
+}
 
-target_labeled.write.json("/user/cyy292/project/target_labeled.json")
+def get_category(sector: String): Vector = sector match {
+  case "Aerospace/Defense" => Vectors.sparse(32, Array(0), Array(1.0))
+  case "Automotive" => Vectors.sparse(32, Array(1), Array(1.0))
+  case "Banking" => Vectors.sparse(32, Array(2), Array(1.0))
+  case "Chemicals" => Vectors.sparse(32, Array(3), Array(1.0))
+  case "Computer Hardware" => Vectors.sparse(32, Array(4), Array(1.0))
+  case "Computer Software & Services" => Vectors.sparse(32, Array(5), Array(1.0))
+  case "Conglomerates" => Vectors.sparse(32, Array(6), Array(1.0))
+  case "Consumer Durables" => Vectors.sparse(32, Array(7), Array(1.0))
+  case "Consumer NonDurables" => Vectors.sparse(32, Array(8), Array(1.0))
+  case "Diversified Services" => Vectors.sparse(32, Array(9), Array(1.0))
+  case "Drugs" => Vectors.sparse(32, Array(10), Array(1.0))
+  case "Electronics" => Vectors.sparse(32, Array(11), Array(1.0))
+  case "Energy" => Vectors.sparse(32, Array(12), Array(1.0))
+  case "Financial Services" => Vectors.sparse(32, Array(13), Array(1.0))
+  case "Food & Beverage" => Vectors.sparse(32, Array(14), Array(1.0))
+  case "Health Services" => Vectors.sparse(32, Array(15), Array(1.0))
+  case "Insurance" => Vectors.sparse(32, Array(16), Array(1.0))
+  case "Internet" => Vectors.sparse(32, Array(17), Array(1.0))
+  case "Leisure" => Vectors.sparse(32, Array(18), Array(1.0))
+  case "Manufacturing" => Vectors.sparse(32, Array(19), Array(1.0))
+  case "Materials & Construction" => Vectors.sparse(32, Array(20), Array(1.0))
+  case "Media" => Vectors.sparse(32, Array(21), Array(1.0))
+  case "Metals & Mining" => Vectors.sparse(32, Array(22), Array(1.0))
+  case "Real Estate" => Vectors.sparse(32, Array(23), Array(1.0))
+  case "Retail" => Vectors.sparse(32, Array(24), Array(1.0))
+  case "Specialty Retail" => Vectors.sparse(32, Array(25), Array(1.0))
+  case "Telecommunications" => Vectors.sparse(32, Array(26), Array(1.0))
+  case "Tobacco" => Vectors.sparse(32, Array(27), Array(1.0))
+  case "Transportation" => Vectors.sparse(32, Array(28), Array(1.0))
+  case "Utilities" => Vectors.sparse(32, Array(29), Array(1.0))
+  case "Wholesale" => Vectors.sparse(32, Array(30), Array(1.0))
+  case _ => Vectors.sparse(32, Array(31), Array(1.0))
+}
 
+val target_labeled_ds = target_tickerInfo_ds.map(row => (row.content, row.tickers, row.sector, row.category, get_sector(row.sector).toArray, get_category(row.category).toArray, get_label(row.price_7m_diff), get_label(row.price_15m_diff), get_label(row.price_30m_diff), get_label(row.price_60m_diff), row.news_datetime))
+val target_labeled_df = target_labeled_ds.toDF().withColumnRenamed("_1", "content").withColumnRenamed("_2", "tickers").withColumnRenamed("_3", "sector").withColumnRenamed("_4", "category").withColumnRenamed("_5", "sector_features").withColumnRenamed("_6", "category_features").withColumnRenamed("_7", "label_7m").withColumnRenamed("_8", "label_15m").withColumnRenamed("_9", "label_30m").withColumnRenamed("_10", "label_60m").withColumnRenamed("_11", "news_datetime")
 
+target_labeled_df.write.mode("Overwrite").json("/user/cyy292/project/target_labeled.json")
 
-
-
+target_labeled_df.toJSON.coalesce(1,true).saveAsTextFile("")
+//selected data distribution
 //
-// val takeAll = false
-//
-// if (takeAll == true){
-//   val result = news_ds_withTickersArray.collect().map(news => singleprice_ds.collect().filter(stock => news.tickers.contains(stock.ticker_symbol) && stock.stock_day == news.news_day && stock.stock_time == news.news_time))
-// }else{// for testing only
-//   val result = news_ds_withTickersArray.take(10).map(
-//     news => singleprice_ds.collect().withFilter(
-//       stock => (news.tickers.contains(stock.ticker_symbol)) && (stock.stock_day == news.news_day) && (stock.stock_time == news.news_time) || (stock.stock_time == udf(news.news_time))
-//     ).map(s => s.avePrice)
-//   )
-// }
-//
-// val result = news_ds_withTickersArray.take(10).map(
-//   news => stock_final_ds.collect().withFilter(
-//     stock => (news.tickers.contains(stock.ticker_symbol)) && (stock.stock_day == news.news_day) && (stock.stock_time == news.news_time) || (stock.stock_time == "09:30:00") || (stock.stock_time == "10:30:00"))
-//   )
-// )
-
-// Now work on the news_ds_withTickersArray and singlePrice_ds to get the result:
-// news_day   == stock_day
-// news_time  == stock_time
-// tickers -> ticker_1 = ticker_symbol_1
-//         -> ticker_2 = ticker_symbol_2
-// Result:
-//       (news_day | news_time | ticker | moment_price | 15min_price | 1hr_price | 2hr_price)
-// Final Result:
-//       (content | header | tickers    | k1           | k2          | k3        | k4
-
-
-
-
-//##################################################################################################################################################################
-// Export Result to Files
-//##################################################################################################################################################################
-
-// if(fullDetailResult == true){ // In the format of: (title, Alias2TickerRow(alias, ticker))
-//   val title_alias_ticker_tuple = news_title_ngrams_and_keywords_only.collect().map(one_set_of_keywords => (one_set_of_keywords, alias2ticker_ds.collect().filter(line => one_set_of_keywords.contains(line.alias))))
-// }else{ // Only contains the matached alias and ticker
-//   val title_alias_ticker_tuple = news_title_ngrams_and_keywords_only.collect().map(one_set_of_keywords => alias2ticker_ds.collect().filter(line => one_set_of_keywords.contains(line.alias)))
-// }
-//
-// if(exportResult == true) {// In order to view result:
-//   sc.parallelize(title_alias_ticker_tuple.map(s => s._1.mkString(" ") + " alias-ticker-pair:" +s._2.mkString(" ")).toSeq).saveAsTextFile("title_alias_ticker_temp_result")
-//   sc.parallelize(title_alias_ticker_tuple.map(s => s._2.mkString(" ")).toSeq).saveAsTextFile("alias_ticker_only_temp_result")
-// }
+// var a = 0
+// var start = 0
+// for (a <- 1 to 10){
+//   val len = arraySorted.size/10
+//   val mid = start + len/2
+//   println(arraySorted(mid))
+//   start = start + len
+}
