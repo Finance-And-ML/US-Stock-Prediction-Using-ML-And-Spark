@@ -1,12 +1,6 @@
 # Stock Price Prediction via Financial News Sentiment Analysis
 
-### About:
-
-
-### Approach:
-
-
-### Data Source:
+#### Data Source:
 1. WSJ News 
  - Full-attribute Wall St. Journal News, including news published timestamp, keywords list, news headline, news body content, and news url. All in JSON file format.
 2. Reuters News 
@@ -23,16 +17,28 @@
  - JSON schema: {"ticker": "ABC", "sector": "Some_Sector", "category": "Some_Cat", "group": "Some_Group"}
  - Includes 9 sectors, 31 categories, 212 groups
 
+#### Data Pipeline
+<img width="659" alt="data pipeline" src="https://user-images.githubusercontent.com/15644582/37743533-e6e4f3e8-2d40-11e8-91c2-7a7864f3f7b3.png">
 
-##### Reference:
+#### Actual Data Flow
+<img width="616" alt="dataflow" src="https://user-images.githubusercontent.com/15644582/37743565-0a5f67d6-2d41-11e8-9765-9ffab9cf4fa6.png">
+
+#### Predicting Result
+We found that a Linear Regression model could get quite good result. The comparision of different reacting time shows that the stock is sensitive the financial press. The 7 minutes reacting time has highest accuracy among others.
+<img width="399" alt="screen shot 2018-03-21 at 8 02 36 pm" src="https://user-images.githubusercontent.com/15644582/37743916-d8cf5198-2d42-11e8-9040-3abb761cbe34.png">
+
+Also, here is sample of MeatMap of investment table, x-axis is company name represented by stock ticker, and y-axis is date of month. Well konwn companies like Google or Apple appear were on the press very often, but others like AMD showed just one time at that month.
+
+<img width="471" alt="heatmap sample" src="https://user-images.githubusercontent.com/15644582/37743858-9625a61c-2d42-11e8-8edf-5d8400754233.png">
+
+#### Reference:
 1. Git: http://www.vogella.com/tutorials/Git/article.html
 2. UDFs: https://jaceklaskowski.gitbooks.io/mastering-apache-spark/spark-sql-udfs.html
 3. Dataset: https://www.balabit.com/blog/spark-scala-dataset-tutorial/
 4. DataFrames: https://docs.databricks.com/spark/latest/dataframes-datasets/introduction-to-dataframes-scala.html  
 5. Word2Vec Sentiments: https://github.com/linanqiu/word2vec-sentiments
 
-
-### To-Do:
+## To-Do:
 #### Improvement:
 1. Stocks that do not have contineuous by-minute price record needs better simulation. Currently, the simulation is done by having all the missing records be the one that appear the latest. We need to mock up the missing price in a linear fashion between two price record.
 2. Inspect the alias2ticker json file: 
