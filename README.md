@@ -24,10 +24,10 @@
 <img width="616" alt="dataflow" src="https://user-images.githubusercontent.com/15644582/37743565-0a5f67d6-2d41-11e8-9765-9ffab9cf4fa6.png">
 
 #### Predicting Result
-We found that a Linear Regression model could get quite good result. The comparision of different reacting time shows that the stock is sensitive the financial press. The 7 minutes reacting time has highest accuracy among others.
+We found that a Linear Regression model could get quite good result. The comparision of different reacting time shows that the stock is sensitive to the financial press. The 7 minutes reacting time has highest accuracy among others.
 <img width="399" alt="screen shot 2018-03-21 at 8 02 36 pm" src="https://user-images.githubusercontent.com/15644582/37743916-d8cf5198-2d42-11e8-9040-3abb761cbe34.png">
 
-Also, here is sample of MeatMap of investment table, x-axis is company name represented by stock ticker, and y-axis is date of month. Well konwn companies like Google or Apple appear were on the press very often, but others like AMD showed just one time at that month.
+Also, here is a sample of HeatMap of investment table, x-axis is company name represented by stock ticker, and y-axis is date of month. Well konwn companies like Google or Apple were on the press very often, but others like AMD showed up just once at that month.
 
 <img width="471" alt="heatmap sample" src="https://user-images.githubusercontent.com/15644582/37743858-9625a61c-2d42-11e8-8edf-5d8400754233.png">
 
